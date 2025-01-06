@@ -1,27 +1,42 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from auth import gsheet_client
 import pandas as pd
 import json
 import os
+import argparse
+
+def get_spreadsheet_name():
+    parser = argparse.ArgumentParser(description="Process spreadsheet name.")
+    parser.add_argument(
+        "spreadsheet_name",
+        type=str,
+        help="Name of the Google Spreadsheet to process."
+    )
+    args = parser.parse_args()
+    return args.spreadsheet_name
+
 
 app = FastAPI()
 
-SPREADSHEET_NAME = "Copy of Digit Insurance-049- Feedback Survey (Responses)"
+# SPREADSHEET_NAME = "Copy of Digit Insurance-049- Feedback Survey (Responses)"
+# SPREADSHEET_NAME = get_spreadsheet_name()
 
 
 class Config(BaseModel):
     json_file: str = "col_keys.json"
-    csv_file: str = "reviews_data.csv"
     json_output_file: str = "reviews_data.json"
 
 
 @app.get("/extract-reviews", summary="Extract reviews from Google Sheets")
-def extract_reviews(config: Config = Config()):
+def extract_reviews(
+    spreadsheet_name: str = Query(..., description="Name of the     Google Spreadsheet to process"),
+    config: Config = Config()):
     """
     Extract reviews from Google Sheets, process them, and save results in CSV and JSON formats.
     """
     try:
+        SPREADSHEET_NAME = spreadsheet_name
         # Open the spreadsheet
         sheet = gsheet_client.open(SPREADSHEET_NAME).sheet1
 
@@ -49,16 +64,27 @@ def extract_reviews(config: Config = Config()):
         # Rename the columns
         renamed_df = filtered_df.rename(columns=dict(json_data))
 
-        # Write to a CSV file
-        renamed_df.to_csv(config.csv_file, mode='a', index=False, header=not os.path.exists(config.csv_file))
+        # Drop rows with null or NaN values in any of the selected columns
+        cleaned_df = renamed_df.dropna(subset=json_data.values())
 
-        # Write to a JSON file
-        renamed_df.to_json(config.json_output_file, orient="records", lines=False, indent=4)
+        # Write to a CSV file
+        # renamed_df.to_csv(config.csv_file, mode='a', index=False, header=not os.path.exists(config.csv_file))
+
+        # Create a structured JSON object
+        structured_json = {
+            "engineer_feedback": cleaned_df["engineer_feedback"].tolist() if "engineer_feedback" in cleaned_df.columns else [],
+            "program_likings": cleaned_df["program_likings"].tolist() if "program_likings" in cleaned_df.columns else [],
+            "topics_learned": cleaned_df["topics_learned"].tolist() if "topics_learned" in cleaned_df.columns else [],
+        }
+
+        # Write the structured JSON object to a file
+        with open(config.json_output_file, "w") as json_file:
+            json.dump(structured_json, json_file, indent=4)
 
         return {
             "message": "Reviews successfully extracted and saved.",
-            "csv_file": config.csv_file,
             "json_file": config.json_output_file,
+            "data_preview": structured_json,  # Optional: Return preview of JSON
         }
 
     except Exception as e:
