@@ -1,44 +1,31 @@
-from fastapi import FastAPI, HTTPException, Query,status
+from fastapi import APIRouter, Query, HTTPException, status
 from pydantic import BaseModel
-from auth import gsheet_client
-import pandas as pd
-import json
 import os
-import argparse
+import json
+import pandas as pd
+from auth import gsheet_client
 
-def get_spreadsheet_name():
-    parser = argparse.ArgumentParser(description="Process spreadsheet name.")
-    parser.add_argument(
-        "spreadsheet_name",
-        type=str,
-        help="Name of the Google Spreadsheet to process."
-    )
-    args = parser.parse_args()
-    return args.spreadsheet_name
-
-
-app = FastAPI(tags="Extract Reviews")
-
-# SPREADSHEET_NAME = "Copy of Digit Insurance-049- Feedback Survey (Responses)"
-# SPREADSHEET_NAME = get_spreadsheet_name()
-
+# Define the router
+review_router = APIRouter(
+    prefix="/extract-reviews",
+    tags=["Extract Reviews"]
+)
 
 class Config(BaseModel):
     json_file: str = "col_keys.json"
     json_output_file: str = "reviews_data.json"
 
-
-@app.get("/extract-reviews", summary="Extract reviews from Google Sheets")
+@review_router.get("/", summary="Extract reviews from Google Sheets")
 def extract_reviews(
-    spreadsheet_name: str = Query(..., description="Name of the     Google Spreadsheet to process"),
-    config: Config = Config()):
+    spreadsheet_name: str = Query(..., description="Name of the Google Spreadsheet to process"),
+    config: Config = Config(),
+):
     """
-    Extract reviews from Google Sheets, process them, and save results in CSV and JSON formats.
+    Extract reviews from Google Sheets, process them, and save results in JSON format.
     """
     try:
-        SPREADSHEET_NAME = spreadsheet_name
         # Open the spreadsheet
-        sheet = gsheet_client.open(SPREADSHEET_NAME).sheet1
+        sheet = gsheet_client.open(spreadsheet_name).sheet1
 
         # Load JSON keys
         if not os.path.exists(config.json_file):
@@ -60,21 +47,25 @@ def extract_reviews(
 
         # Filter the DataFrame based on the keys
         filtered_df = df[keys]
+        print(" ------------>> filtered_df \n",filtered_df.columns,"\n <<------------")
 
         # Rename the columns
         renamed_df = filtered_df.rename(columns=dict(json_data))
 
-        # Drop rows with null or NaN values in any of the selected columns
+       # Replace empty strings with NaN
+        renamed_df.replace("", pd.NA, inplace=True)
+
+        # Drop rows with NaN values or empty strings in the selected columns
         cleaned_df = renamed_df.dropna(subset=json_data.values())
+        print(" ------------>> \n",cleaned_df.columns,"\n <<------------")
 
-        # Write to a CSV file
-        # renamed_df.to_csv(config.csv_file, mode='a', index=False, header=not os.path.exists(config.csv_file))
-
-        # Creating a structured JSON object
+        # Create a structured JSON object
         structured_json = {
             "engineer_feedback": cleaned_df["engineer_feedback"].tolist() if "engineer_feedback" in cleaned_df.columns else [],
             "program_likings": cleaned_df["program_likings"].tolist() if "program_likings" in cleaned_df.columns else [],
             "topics_learned": cleaned_df["topics_learned"].tolist() if "topics_learned" in cleaned_df.columns else [],
+            "program_improvements": cleaned_df["program_improvements"].tolist() if "program_improvements" in cleaned_df.columns else [],
+            "engineer_improvements": cleaned_df["engineer_improvements"].tolist() if "engineer_improvements" in cleaned_df.columns else []
         }
 
         # Write the structured JSON object to a file
@@ -83,11 +74,10 @@ def extract_reviews(
 
         return {
             "message": "Reviews successfully extracted and saved.",
-            "payload":
-                {
-                    "json_file_name": config.json_output_file,
-                    "data_preview": structured_json
-                }, # Optional: Return preview of JSON},
+            "payload": {
+                "json_file_name": config.json_output_file,
+                "data_preview": structured_json
+            },
             "status": status.HTTP_200_OK
         }
 
