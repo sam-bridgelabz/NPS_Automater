@@ -1,9 +1,7 @@
-import streamlit as st # type: ignore
+import streamlit as st
 import pandas as pd
-from textblob import TextBlob
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from collections import defaultdict
+from fpdf import FPDF
+import requests
 
 def setup_page():
     st.set_page_config(
@@ -13,107 +11,141 @@ def setup_page():
     )
     st.title("NPS Automator")
 
+def call_extract_reviews(spreadsheet_name):
+    params = {
+        "spreadsheet_url": spreadsheet_name
+    }
+
+    try:
+        fastapi_url = "http://localhost:8000/extract-reviews"
+        response = requests.get(fastapi_url, params=params)
+
+        if response.status_code == 200:
+            result = response.json()
+            print("\n\nresult--->",result,"\n\n")
+            st.success("Reviews successfully extracted and saved.")
+            generate_table(result['payload']['feedback_generated'])
+            # generate_table(result)
+        else:
+            st.error(f"Error: {response.status_code} - {response.text}")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+
 def initialize_session_state():
-    if 'sheet_url' not in st.session_state:
+    if "sheet_url" not in st.session_state:
         st.session_state.sheet_url = ""
-    if 'feedback_data' not in st.session_state:
+    if "feedback_data" not in st.session_state:
         st.session_state.feedback_data = None
 
-# def connect_to_sheets(sheet_url):
-#     try:
-#         # Use your Google Sheets API credentials
-#         scope = ['https://spreadsheets.google.com/feeds',
-#                 'https://www.googleapis.com/auth/drive']
-        
-#         credentials = ServiceAccountCredentials.from_json_keyfile_name(
-#             'your-credentials.json', scope)
-        
-#         client = gspread.authorize(credentials)
-#         sheet = client.open_by_url(sheet_url).sheet1
-#         data = sheet.get_all_records()
-#         return pd.DataFrame(data)
-#     except Exception as e:
-#         st.error(f"Error connecting to Google Sheet: {str(e)}")
-#         return None
+def generate_table(data):
+    st.title("Feedback Analysis")
 
-def analyze_sentiment(feedback):
-    if pd.isna(feedback) or not isinstance(feedback, str):
-        return 0
-    
-    analysis = TextBlob(feedback)
-    return analysis.sentiment.polarity
+    st.subheader("Positive Aspects")
+    positive_df = pd.DataFrame(data['positive_aspects'])
+    st.table(positive_df)
 
-def get_top_feedback(df, feedback_column, n=5, sentiment_type='positive'):
-    if df is None or feedback_column not in df.columns:
-        return []
-    
-    df['sentiment'] = df[feedback_column].apply(analyze_sentiment)
-    
-    if sentiment_type == 'positive':
-        sorted_df = df.nlargest(n, 'sentiment')
-    else:
-        sorted_df = df.nsmallest(n, 'sentiment')
-    
-    return sorted_df[feedback_column].tolist()
+    st.subheader("Improvements Needed Aspects")
+    negative_df = pd.DataFrame(data['improvements_needed'])
+    st.table(negative_df)
+
+    # Generate PDF and create a download button
+    pdf_file_path = create_pdf(positive_df, negative_df)
+    if pdf_file_path:
+        st.download_button(
+            label="Download Feedback as PDF",
+            data=open(pdf_file_path, "rb").read(),
+            file_name="Feedback_Analysis.pdf",
+            mime="application/pdf",
+            on_click=clear_input_field  # Clear input field when download is clicked
+        )
+
+def create_pdf(positive_df, negative_df):
+    try:
+        # Print the columns of the DataFrames to check if 'Aspect' exists
+        print("Positive DF Columns:", positive_df.columns)
+        print("Negative DF Columns:", negative_df.columns)
+
+        # Check if required columns exist in both DataFrames
+        if 'Aspect' not in positive_df.columns or 'Explanation' not in positive_df.columns:
+            st.error("Positive aspects data is missing required columns.")
+            return None
+        if 'Aspect' not in negative_df.columns or 'Explanation' not in negative_df.columns:
+            st.error("Negative aspects data is missing required columns.")
+            return None
+
+        # Create PDF
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(200, 10, txt="Feedback Analysis", ln=True, align="C")
+
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(200, 10, txt="Positive Aspects", ln=True, align="L")
+        pdf.set_font("Arial", size=12)
+        for index, row in positive_df.iterrows():
+            pdf.multi_cell(0, 10, txt=f"{row['Aspect']}: {row['Explanation']}")
+
+        pdf.ln(10)
+
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(200, 10, txt="Negative Aspects", ln=True, align="L")
+        pdf.set_font("Arial", size=12)
+        for index, row in negative_df.iterrows():
+            pdf.multi_cell(0, 10, txt=f"{row['Aspect']}: {row['Explanation']}")
+
+        pdf_file_path = "feedback_analysis.pdf"
+        try:
+            pdf.output(pdf_file_path)
+            print("PDF saved successfully!")
+        except Exception as e:
+            print(f"Error saving PDF: {e}")
+
+        return pdf_file_path
+    except Exception as e:
+        st.error(f"An error occurred while generating the PDF: {e}")
+        return None
+
+
+def clear_input_field():
+    """Clear the input field after the file is downloaded."""
+    st.session_state.sheet_url = ""  # Clear the URL input field
 
 def main():
     setup_page()
     initialize_session_state()
-    
-    # Create sidebar
-    with st.sidebar:
-        st.header("Controls")
-        if st.button("Analyze Feedback"):
-            if st.session_state.sheet_url:
-                with st.spinner("Analyzing feedback..."):
-                    df = connect_to_sheets(st.session_state.sheet_url)
-                    if df is not None:
-                        st.session_state.feedback_data = df
-                        st.success("Analysis complete!")
-            else:
-                st.warning("Please enter a Google Sheet URL first")
-    
-    # Main content area
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Google Sheet URL")
-        sheet_url = st.text_input(
-            "Enter the URL of your Google Sheet",
-            value=st.session_state.sheet_url,
-            key="sheet_url_input"
-        )
-        if st.button("Submit"):
-            st.session_state.sheet_url = sheet_url
-            st.success("URL submitted successfully!")
-    
-    # Display results if data is available
-    if st.session_state.feedback_data is not None:
-        st.header("Analysis Results")
-        
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            st.subheader("Top 5 Positive Feedback")
-            positive_feedback = get_top_feedback(
-                st.session_state.feedback_data,
-                'feedback_column',  # Replace with your actual column name
-                5,
-                'positive'
+
+    # Create a navigation bar using radio buttons
+    nav_items = ["Extract Reviews", "Feedback Analysis"]
+    st.sidebar.title("Actions")
+    nav_choice = st.sidebar.radio("Select an action", nav_items)  # Sidebar radio for navigation
+
+    if nav_choice == "Extract Reviews":
+        # Show Extract Reviews Section
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Google Sheet URL")
+            st.text_input(
+                "Enter the URL of your Google Sheet",
+                value=st.session_state.sheet_url,
+                key="sheet_url"
             )
-            for i, feedback in enumerate(positive_feedback, 1):
-                st.write(f"{i}. {feedback}")
-        
-        with col4:
-            st.subheader("Top 5 Negative Feedback")
-            negative_feedback = get_top_feedback(
-                st.session_state.feedback_data,
-                'feedback_column',  # Replace with your actual column name
-                5,
-                'negative'
-            )
-            for i, feedback in enumerate(negative_feedback, 1):
-                st.write(f"{i}. {feedback}")
+            if st.button("Submit"):
+                if st.session_state.sheet_url:
+                    call_extract_reviews(st.session_state.sheet_url)
+                else:
+                    st.warning("Please enter a valid Google Sheets URL.")
+
+    elif nav_choice == "Feedback Analysis":
+        # Show Feedback Analysis Section
+        if st.session_state.feedback_data:
+            st.header("Analysis Results")
+            generate_table(st.session_state.feedback_data)
+        else:
+            st.warning("Please extract reviews first by entering a Google Sheet URL.")
 
 if __name__ == "__main__":
     main()
+

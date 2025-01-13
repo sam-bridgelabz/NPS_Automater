@@ -44,7 +44,7 @@ TOP 5 NEGATIVE ASPECTS:
 3. [Aspect]: [Example Quote] - [Explanation]
 4. [Aspect]: [Example Quote] - [Explanation]
 5. [Aspect]: [Example Quote] - [Explanation]
-the above output should be in json format with structure {"positive_aspects":[],"negative_aspects":[]}
+the above output should be in json format with structure {"positive_aspects":[],"improvements_needed":[]}
 """
 
 # Function to read feedback from a JSON file
@@ -86,5 +86,5 @@ def generate_feedback_from_ai():
     genai.configure(api_key=os.getenv('GEMINI_KEY'))
     model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content(full_prompt).text
-    return extract_data_between_braces(response)  # Return the response
+    return extract_data_between_braces(response) # Return the response
 

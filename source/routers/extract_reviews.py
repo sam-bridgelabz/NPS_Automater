@@ -46,7 +46,7 @@ def extract_reviews(
 
         # Open the spreadsheet
         sheet = gsheet_client.open_by_key(spreadsheet_id).sheet1
-
+        sheet_title = sheet.title
         # Load JSON keys
         if not os.path.exists(config.json_file):
             raise HTTPException(status_code=404, detail="Column keys JSON file not found.")
