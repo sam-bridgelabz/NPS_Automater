@@ -4,6 +4,9 @@ import os
 import json
 import pandas as pd
 from auth import gsheet_client
+from .feedback_generator import generate_feedback_from_ai
+from urllib.parse import urlparse, parse_qs
+
 
 # Define the router
 review_router = APIRouter(
@@ -13,19 +16,36 @@ review_router = APIRouter(
 
 class Config(BaseModel):
     json_file: str = "col_keys.json"
-    json_output_file: str = "reviews_data.json"
+    json_output_file: str = "../reviews_data.json"
 
 @review_router.get("/", summary="Extract reviews from Google Sheets")
 def extract_reviews(
-    spreadsheet_name: str = Query(..., description="Name of the Google Spreadsheet to process"),
+    spreadsheet_url: str = Query(..., description="URL of the Google Spreadsheet to process"),
     config: Config = Config(),
 ):
     """
     Extract reviews from Google Sheets, process them, and save results in JSON format.
     """
     try:
+        # Extract the spreadsheet ID from the URL
+        parsed_url = urlparse(spreadsheet_url)
+        print("parsed_url -->",parsed_url,"\n")
+        # query_params = parse_qs(parsed_url.query)
+        # print("query_params -->",query_params,"\n")
+        path_segments = parsed_url.path.split("/")
+        print("path_segments -->",path_segments,"\n")
+
+        # Ensure the path is valid
+        if len(path_segments) > 2 and path_segments[2] == "d":
+            spreadsheet_id = path_segments[3]
+        else:
+            raise HTTPException(status_code=400, detail="Invalid Google Sheets URL. Spreadsheet ID not found.")
+        print("spreadsheet_id -->",spreadsheet_id,"\n")
+        if not spreadsheet_id:
+            raise HTTPException(status_code=400, detail="Invalid Google Sheets URL. Spreadsheet ID not found.")
+
         # Open the spreadsheet
-        sheet = gsheet_client.open(spreadsheet_name).sheet1
+        sheet = gsheet_client.open_by_key(spreadsheet_id).sheet1
 
         # Load JSON keys
         if not os.path.exists(config.json_file):
@@ -47,17 +67,15 @@ def extract_reviews(
 
         # Filter the DataFrame based on the keys
         filtered_df = df[keys]
-        print(" ------------>> filtered_df \n",filtered_df.columns,"\n <<------------")
 
         # Rename the columns
         renamed_df = filtered_df.rename(columns=dict(json_data))
 
-       # Replace empty strings with NaN
+        # Replace empty strings with NaN
         renamed_df.replace("", pd.NA, inplace=True)
 
         # Drop rows with NaN values or empty strings in the selected columns
         cleaned_df = renamed_df.dropna(subset=json_data.values())
-        print(" ------------>> \n",cleaned_df.columns,"\n <<------------")
 
         # Create a structured JSON object
         structured_json = {
@@ -71,12 +89,13 @@ def extract_reviews(
         # Write the structured JSON object to a file
         with open(config.json_output_file, "w") as json_file:
             json.dump(structured_json, json_file, indent=4)
-
+        ai_rep = generate_feedback_from_ai()
+        print("ai_rep -->",ai_rep)
         return {
             "message": "Reviews successfully extracted and saved.",
             "payload": {
                 "json_file_name": config.json_output_file,
-                "data_preview": structured_json
+                "feedback_generated": ai_rep
             },
             "status": status.HTTP_200_OK
         }

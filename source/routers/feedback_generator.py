@@ -2,6 +2,7 @@ import os
 import json
 import google.generativeai as genai
 from dotenv import load_dotenv
+import re
 
 load_dotenv()
 
@@ -43,6 +44,7 @@ TOP 5 NEGATIVE ASPECTS:
 3. [Aspect]: [Example Quote] - [Explanation]
 4. [Aspect]: [Example Quote] - [Explanation]
 5. [Aspect]: [Example Quote] - [Explanation]
+the above output should be in json format with structure {"positive_aspects":[],"negative_aspects":[]}
 """
 
 # Function to read feedback from a JSON file
@@ -50,15 +52,39 @@ def read_feedback_from_json(file_path):
     with open(file_path, 'r') as f:
         return json.load(f)
 
+def extract_data_between_braces(json_string):
+    """
+    Extracts the data between curly braces `{}` from a JSON string or text.
+
+    Args:
+        json_string (str): The input JSON string or text.
+
+    Returns:
+        dict: Parsed data between curly braces as a Python dictionary.
+    """
+    try:
+        # Use regex to extract the content between the outermost curly braces
+        match = re.search(r'\{.*\}', json_string, re.DOTALL)
+        if match:
+            data = match.group(0)
+            # Parse the JSON string into a dictionary
+            return json.loads(data)
+        else:
+            raise ValueError("No data found between curly braces.")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Error parsing JSON: {e}")
+
 
 def generate_feedback_from_ai():
     json_file_path = '../reviews_data.json'
     # Read the entire feedback data from the JSON file
     feedback_data = read_feedback_from_json(json_file_path)
-
+    # print(feedback_data)
     # Prepare the full prompt by inserting feedback data into the template using f-string
     full_prompt = f"{feedback_gen_prompt}\nFeedback Data: {json.dumps(feedback_data)}"
+    print("os.getenv('GEMINI_KEY')",os.getenv('GEMINI_KEY'))
     genai.configure(api_key=os.getenv('GEMINI_KEY'))
     model = genai.GenerativeModel("gemini-1.5-flash")
-    return  model.generate_content(full_prompt)
+    response = model.generate_content(full_prompt).text
+    return extract_data_between_braces(response)  # Return the response
 
