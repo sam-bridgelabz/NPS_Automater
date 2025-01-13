@@ -1,91 +1,64 @@
-from fastapi import FastAPI, HTTPException, Query, APIRouter
-from pydantic import BaseModel
-import google.generativeai as genai
-from typing import Dict, Any
-from collections import Counter
-from dotenv import load_dotenv
 import os
 import json
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-# Load the .env file
 load_dotenv()
 
-# Define the router
-feedback_gen_router = APIRouter(
-    prefix="/gen_feedback",
-    tags=["Generate Feedback"]
-)
+# Define the prompt template
+feedback_gen_prompt = """
+Using the JSON structure provided below, analyze the feedback from engineers to identify key insights:
 
- # Configure Gemini
-api_key = os.getenv('GEMINI_KEY')
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-pro")
+1. Summarize the positive aspects of the training program.
+2. Highlight areas needing improvement based on suggestions provided.
+3. Identify topics where engineers want to deepen their understanding.
+4. Recommend actionable steps to enhance the training experience in the future.
+
+JSON Structure:
+{
+  "engineer_feedback": [Array of feedback comments],
+  "program_likings": [Array of liked aspects],
+  "topics_learned": [Array of topics learned],
+  "program_improvements": [Array of suggested improvements],
+  "engineer_improvements": [Array of areas needing better understanding]
+}
+
+Feedback Data:
+{feedback_data}
+
+The output should be Top 5 positive aspects and Top 5 negative aspects
+Explanation should be precise and not more than 1 sentence
+
+Format your response as follows:
+TOP 5 POSITIVE ASPECTS:
+1. [Aspect]: [Example Quote] - [Explanation]
+2. [Aspect]: [Example Quote] - [Explanation]
+3. [Aspect]: [Example Quote] - [Explanation]
+4. [Aspect]: [Example Quote] - [Explanation]
+5. [Aspect]: [Example Quote] - [Explanation]
+
+TOP 5 NEGATIVE ASPECTS:
+1. [Aspect]: [Example Quote] - [Explanation]
+2. [Aspect]: [Example Quote] - [Explanation]
+3. [Aspect]: [Example Quote] - [Explanation]
+4. [Aspect]: [Example Quote] - [Explanation]
+5. [Aspect]: [Example Quote] - [Explanation]
+"""
+
+# Function to read feedback from a JSON file
+def read_feedback_from_json(file_path):
+    with open(file_path, 'r') as f:
+        return json.load(f)
 
 
+def generate_feedback_from_ai():
+    json_file_path = '../reviews_data.json'
+    # Read the entire feedback data from the JSON file
+    feedback_data = read_feedback_from_json(json_file_path)
 
-# Analyze feedback logic
-def analyze_feedback() -> Dict[str, Any]:
-    """
-    Analyze feedback based on the extracted reviews data.
-    """
-    try:
-        with open('reviews_data.json','r') as r_file:
-            data = json.load(r_file)
-        
-        # Example Analysis 1: Sentiment Analysis
-        def analyze_sentiment(feedback_list):
-            positive = sum(1 for feedback in feedback_list if "good" in feedback.lower() or "excellent" in feedback.lower())
-            negative = sum(1 for feedback in feedback_list if "bad" in feedback.lower() or "poor" in feedback.lower())
-            neutral = len(feedback_list) - positive - negative
-            return {"positive": positive, "negative": negative, "neutral": neutral}
+    # Prepare the full prompt by inserting feedback data into the template using f-string
+    full_prompt = f"{feedback_gen_prompt}\nFeedback Data: {json.dumps(feedback_data)}"
+    genai.configure(api_key=os.getenv('GEMINI_KEY'))
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    return  model.generate_content(full_prompt)
 
-        # Example Analysis 2: Topic Frequency
-        def count_topics(topics_list):
-            all_topics = [topic.lower() for sublist in topics_list for topic in sublist.split(",")]
-            return dict(Counter(all_topics))
-
-        # Example Analysis 3: Extract Improvement Suggestions
-        def extract_improvements(improvement_list):
-            return {
-                "most_common": dict(Counter(improvement_list)),
-                "total_suggestions": len(improvement_list)
-            }
-
-        # Perform analysis on the extracted data
-        engineer_feedback = data.get("engineer_feedback", [])
-        program_likings = data.get("program_likings", [])
-        topics_learned = data.get("topics_learned", [])
-        program_improvements = data.get("program_improvements", [])
-        engineer_improvements = data.get("engineer_improvements", [])
-
-        sentiment_results = analyze_sentiment(engineer_feedback)
-        topic_frequencies = count_topics(topics_learned)
-
-        program_improvements_summary = extract_improvements(program_improvements)
-        engineer_improvements_summary = extract_improvements(engineer_improvements)
-
-        # Example Analysis 4: Most Common Program Liking
-        program_liking_counts = dict(Counter(program_likings))
-        most_liked_aspect = max(program_liking_counts, key=program_liking_counts.get) if program_liking_counts else "N/A"
-
-        # Structure analysis results
-        analysis_results = {
-            "sentiment_analysis": sentiment_results,
-            "topic_frequencies": topic_frequencies,
-            "most_liked_aspect": most_liked_aspect,
-            "program_improvements": program_improvements_summary,
-            "engineer_improvements": engineer_improvements_summary
-        }
-
-        return analysis_results
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-# FastAPI route to perform feedback analysis
-@feedback_gen_router.get("/analyze-feedback", summary="Analyze feedback from extracted data")
-def analyze_feedback_endpoint():
-    """
-    Endpoint to analyze feedback and return insights.
-    """
-    return analyze_feedback()
