@@ -22,6 +22,10 @@ def initialize_session_state():
         st.session_state.feedback_data = None
     if "cleaned_data" not in st.session_state:
         st.session_state.cleaned_data = None
+    if "sheet_title" not in st.session_state:
+        st.session_state.sheet_title = None
+    if "wave_number" not in st.session_state:
+        st.session_state.wave_number = None
 
 def call_extract_reviews(spreadsheet_url, wave_number):
     params = {
@@ -39,14 +43,13 @@ def call_extract_reviews(spreadsheet_url, wave_number):
                 st.success("Reviews successfully extracted. Now generating table from it...")
                 st.session_state.feedback_data = result['payload']['feedback_generated']
                 st.session_state.cleaned_data = result['cleaned_data']
+                st.session_state.sheet_title = result['sheet_title']
             else:
                 st.error(f"Error: {response.status_code} - {response.text}")
     except Exception as e:
         st.error(f"An error occurred: {e}")
 
-def generate_table(data):
-    # st.title("Feedback Analysis")
-
+def generate_table(data,sheet_title, wave_number):
     # Positive and negative aspects from the cleaned_data
     positive_df = pd.DataFrame(data['positive_aspects'])
     positive_df.rename(columns={'aspect': 'Aspect', 'explanation': 'Explanation'}, inplace=True)
@@ -64,18 +67,18 @@ def generate_table(data):
     st.table(negative_df)
 
     # Creating PDF and enabling download
-    pdf_file_path = create_pdf(positive_df, negative_df)
+    pdf_file_path = create_pdf(positive_df, negative_df,sheet_title, wave_number)
     if pdf_file_path:
         st.download_button(
             label="Download Feedback as PDF",
             data=open(pdf_file_path, "rb").read(),
-            file_name="Feedback_Analysis.pdf",
+            file_name=f"{sheet_title}-Wave-{wave_number}.pdf",
             mime="application/pdf",
-            # on_click=clear_all_data
         )
 
-def create_pdf(positive_df, negative_df):
+def create_pdf(positive_df, negative_df, sheet_title, wave_number):
     try:
+        # Check if the dataframes contain the required columns
         if 'Aspect' not in positive_df.columns or 'Explanation' not in positive_df.columns:
             st.error("Positive aspects data is missing required columns.")
             return None
@@ -83,14 +86,20 @@ def create_pdf(positive_df, negative_df):
             st.error("Negative aspects data is missing required columns.")
             return None
 
+        # Create a PDF object
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
         pdf.set_font("Arial", size=12)
 
+        # Title
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(200, 10, f"Feedback Analysis for {sheet_title}", ln=True, align="C")
+        pdf.cell(200, 10, f"Wave Number: {wave_number}", ln=True, align="C")
+        pdf.ln(10)  # Line break after title
         pdf.set_font("Arial", "B", 16)
-        # pdf.cell(200, 10, txt="Feedback Analysis", ln=True, align="C")
 
+        # Positive aspects
         pdf.set_font("Arial", "B", 14)
         pdf.cell(200, 10, txt="Positive Aspects", ln=True, align="L")
         pdf.set_font("Arial", size=12)
@@ -99,12 +108,14 @@ def create_pdf(positive_df, negative_df):
 
         pdf.ln(10)
 
+        # Negative aspects
         pdf.set_font("Arial", "B", 14)
         pdf.cell(200, 10, txt="Improvements Needed Aspects", ln=True, align="L")
         pdf.set_font("Arial", size=12)
         for index, row in negative_df.iterrows():
             pdf.multi_cell(0, 10, txt=f"{row['Aspect']}: {row['Explanation']}")
 
+        # Save the PDF
         pdf_file_path = "feedback_analysis.pdf"
         pdf.output(pdf_file_path)
         return pdf_file_path
@@ -185,7 +196,7 @@ def calculate_percentage_below_7(data):
     explode = (0.1, 0)
 
     plt.figure(figsize=(6, 4))
-    plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
+    plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', startangle=100)
     plt.title('Percentage of Respondents with Scores Below 7', fontsize=16)
 
     st.pyplot(plt)
@@ -229,10 +240,16 @@ def calculate_nps(data):
     labels = ['Promoters', 'Passives', 'Detractors']
     sizes = [len(promoters), len(passives), len(detractors)]
     colors = ['green', 'yellow', 'red']
-    explode = (0.1, 0, 0)
+    explode = (0, 0, 0)
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
+    fig, ax = plt.subplots(figsize=(4, 2))
+    wedges, texts, autotexts = ax.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', startangle=80)
+    # Set font size for the labels and the percentages
+    for text in texts:
+        text.set_fontsize(6)  # Decrease label font size
+
+    for autotext in autotexts:
+        autotext.set_fontsize(4)
     ax.set_title('Proportion of NPS Categories')
     st.pyplot(fig)
 
@@ -281,7 +298,7 @@ def main():
 
         if selected_tab == "Feedback Analysis":
             st.header("Feedback Analysis")
-            generate_table(st.session_state.feedback_data)
+            generate_table(st.session_state.feedback_data,st.session_state.sheet_title,st.session_state.wave_number)
         elif selected_tab == "Analysis Results":
             st.header("Analysis Results")
             analyse_data(st.session_state.cleaned_data)

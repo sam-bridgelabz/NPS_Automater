@@ -110,6 +110,8 @@ def extract_reviews(
                 "feedback_generated": ai_rep
             },
             "cleaned_data": renamed_df.to_dict(orient="records"),
+            "sheet_title":sheet.title,
+            "wave_number":renamed_df['wave_number'].iloc[0],
             "status": status.HTTP_200_OK
         }
 
