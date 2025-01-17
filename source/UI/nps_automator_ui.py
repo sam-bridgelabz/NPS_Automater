@@ -4,6 +4,7 @@ from streamlit_option_menu import option_menu
 from fpdf import FPDF
 import requests
 import matplotlib.pyplot as plt
+import os
 
 def setup_page():
     st.set_page_config(
@@ -26,6 +27,10 @@ def initialize_session_state():
         st.session_state.sheet_title = None
     if "wave_number" not in st.session_state:
         st.session_state.wave_number = None
+    if "summary_df" not in st.session_state:
+        st.session_state.summary_df = None
+    if "nps_results_df" not in st.session_state:
+        st.session_state.nps_results_df = None
 
 def call_extract_reviews(spreadsheet_url, wave_number):
     params = {
@@ -144,6 +149,7 @@ def analyse_data(data):
 
     # Set the index to start from 1
     summary_df.index = range(1, len(summary_df) + 1)
+    st.session_state.summary_df = summary_df
 
     # Display the summary table
     st.write("### Analysis Overview")
@@ -152,6 +158,7 @@ def analyse_data(data):
     plot_score_distribution(data_df)
     calculate_percentage_below_7(data_df)
     calculate_nps(data_df)
+
 
 def plot_score_distribution(data):
     if 'wave_number' not in data.columns or len(data['wave_number'].unique()) > 1:
@@ -174,6 +181,13 @@ def plot_score_distribution(data):
     plt.ylabel('Frequency', fontsize=14)
     plt.xticks(range(0, 11))
     plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # Save plot as PNG in the 'charts' folder
+    if not os.path.exists("charts"):
+        os.makedirs("charts")  # Create the folder if it doesn't exist
+
+    plot_filename = f"charts/score_distribution_wave_{wave_number}.png"
+    plt.savefig(plot_filename, bbox_inches='tight')
 
     st.pyplot(plt)
 
@@ -198,6 +212,13 @@ def calculate_percentage_below_7(data):
     plt.figure(figsize=(6, 4))
     plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', startangle=100)
     plt.title('Percentage of Respondents with Scores Below 7', fontsize=16)
+
+     # Save plot as PNG in the 'charts' folder
+    if not os.path.exists("charts"):
+        os.makedirs("charts")  # Create the folder if it doesn't exist
+
+    plot_filename = f"charts/score_chart_wave_{st.session_state.wave_number}.png"
+    plt.savefig(plot_filename, bbox_inches='tight')
 
     st.pyplot(plt)
 
@@ -225,6 +246,7 @@ def calculate_nps(data):
 
     st.write("### NPS Calculation Results")
     results_df.index = range(1, len(results_df) + 1)
+    st.session_state.nps_results_df = results_df
     st.table(results_df)
 
     categories = ['Promoters', 'Passives', 'Detractors']
@@ -252,6 +274,78 @@ def calculate_nps(data):
         autotext.set_fontsize(4)
     ax.set_title('Proportion of NPS Categories')
     st.pyplot(fig)
+    # Creating PDF and enabling download
+    pdf_file_path = create_result_pdf()
+    if pdf_file_path:
+        st.download_button(
+            label="Download Results as PDF",
+            data=open(pdf_file_path, "rb").read(),
+            file_name=f"{st.session_state.sheet_title}-wave{st.session_state.wave_number}-results.pdf",
+            mime="application/pdf",
+        )
+
+def create_result_pdf():
+    try:
+        # Create a PDF object
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+        pdf.set_font("Arial", size=12)
+
+        # Title
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(200, 10, f"Feedback Result for {st.session_state.sheet_title}", ln=True, align="C")
+        pdf.cell(200, 10, f"Wave Number: {st.session_state.wave_number}", ln=True, align="C")
+        pdf.ln(10)  # Line break after title
+
+        # Analysis Overview Section
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(200, 10, "Analysis Overview", ln=True, align="L")
+        pdf.set_font("Arial", size=12)
+        if 'nps_results_df' in st.session_state:
+            for index, row in st.session_state.nps_results_df.iterrows():
+                pdf.multi_cell(0, 10, txt=f"{row['Metric']}: {row['Value']}")
+        pdf.ln(10)  # Add space after the analysis overview
+
+        # Add NPS Feedback Score Distribution Chart (if available)
+        nps_chart_path = f"charts/score_distribution_wave_Wave {st.session_state.wave_number}.png"
+        if os.path.exists(nps_chart_path):
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(200, 10, "NPS Feedback Score Distribution", ln=True, align="L")
+            pdf.image(nps_chart_path, x=10, y=pdf.get_y(), w=180)
+            pdf.ln(10)  # Add space after the NPS chart
+
+        pdf.ln(100)
+
+        # NPS Calculation Results Section
+        pdf.ln(50)
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(200, 10, "NPS Calculation Results", ln=True, align="L")
+        pdf.set_font("Arial", size=12)
+        if 'nps_results_df' in st.session_state:
+            for index, row in st.session_state.nps_results_df.iterrows():
+                pdf.multi_cell(0, 10, txt=f"{row['Metric']}: {row['Value']}")
+        pdf.ln(10)  # Add space after NPS results section
+        # Add Feedback Score Distribution Chart (if available)
+        pdf.ln(10)
+        chart_path = f"charts/score_chart_wave_{st.session_state.wave_number}.png"
+        if os.path.exists(chart_path):
+            pdf.set_font("Arial", "B", 14)
+            pdf.cell(200, 10, "Feedback Score Distribution", ln=True, align="L")
+            pdf.image(chart_path, x=10, y=pdf.get_y(), w=180)
+            pdf.ln(10)  # Add space after the chart
+
+        # Final spacing before saving the PDF
+        pdf.ln(10)
+
+        # Save the PDF
+        pdf_file_path = "feedback_result.pdf"
+        pdf.output(pdf_file_path)
+        return pdf_file_path
+    except Exception as e:
+        st.error(f"An error occurred while generating the PDF: {e}")
+        return None
+
 
 def clear_all_data():
     """Clear all session state and input fields after download."""
