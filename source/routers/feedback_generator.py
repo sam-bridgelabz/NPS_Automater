@@ -82,7 +82,7 @@ def generate_feedback_from_ai():
     # print(feedback_data)
     # Prepare the full prompt by inserting feedback data into the template using f-string
     full_prompt = f"{feedback_gen_prompt}\nFeedback Data: {json.dumps(feedback_data)}"
-    print("os.getenv('GEMINI_KEY')",os.getenv('GEMINI_KEY'))
+    # print("os.getenv('GEMINI_KEY')",os.getenv('GEMINI_KEY'))
     genai.configure(api_key=os.getenv('GEMINI_KEY'))
     model = genai.GenerativeModel("gemini-1.5-flash")
     response = model.generate_content(full_prompt).text

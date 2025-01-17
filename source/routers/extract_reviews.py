@@ -1,10 +1,13 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from fastapi import APIRouter, Query, HTTPException, status
 from pydantic import BaseModel
-import os
 import json
 import pandas as pd
 from auth import gsheet_client
 from .feedback_generator import generate_feedback_from_ai
+from source.UI.nps_automator_ui import analyse_data
 from urllib.parse import urlparse
 
 # Define the router
@@ -106,6 +109,7 @@ def extract_reviews(
                 "json_file_name": config.json_output_file,
                 "feedback_generated": ai_rep
             },
+            "cleaned_data": renamed_df.to_dict(orient="records"),
             "status": status.HTTP_200_OK
         }
 
