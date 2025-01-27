@@ -1,0 +1,9 @@
+{
+	"If you were given a chance to shape up the fellowship program, what are improvements and changes you will bring?": "engineer_feedback",
+	"What are the areas  you  are liking in the program?": "program_likings",
+	"Please share the topics where you feel that you have had good learning so far": "topics_learned",
+	"What are the areas you think should improve or change in fellowship program ?": "program_improvements",
+	"Please share the topics where you are yet not confident about your learnings": "engineer_improvements",
+	"Wave Survey?": "wave_number",
+	"How likely will you recommend your friend or colleague this program?": "recommendation_score"
+}
