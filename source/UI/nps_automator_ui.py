@@ -4,7 +4,12 @@ from streamlit_option_menu import option_menu
 from fpdf import FPDF
 import requests
 import matplotlib.pyplot as plt
+from dotenv import load_dotenv
 import os
+
+# Load the .env file
+load_dotenv()
+
 
 def setup_page():
     st.set_page_config(
@@ -40,7 +45,7 @@ def call_extract_reviews(spreadsheet_url, wave_number):
 
     try:
         with st.spinner("Trying to fetch data..."):
-            fastapi_url = "http://localhost:8000/extract-reviews"
+            fastapi_url = f"{os.getenv('MAIN_URL')}/extract-reviews"
             response = requests.get(fastapi_url, params=params)
 
             if response.status_code == 200:
